@@ -1,4 +1,3 @@
-import graph_tool as gt
 import os
 import pathlib
 import warnings
@@ -7,9 +6,9 @@ import torch
 torch.cuda.empty_cache()
 import hydra
 from omegaconf import DictConfig
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.utilities.warnings import PossibleUserWarning
+from lightning import Trainer
+from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.utilities.warnings import PossibleUserWarning
 
 from src import utils
 from metrics.abstract_metrics import TrainAbstractMetricsDiscrete, TrainAbstractMetrics
@@ -17,6 +16,9 @@ from metrics.abstract_metrics import TrainAbstractMetricsDiscrete, TrainAbstract
 from diffusion_model import LiftedDenoisingDiffusion
 from diffusion_model_discrete import DiscreteDenoisingDiffusion
 from diffusion.extra_features import DummyExtraFeatures, ExtraFeatures
+from tictoc import bench_dict
+import matplotlib
+matplotlib.use('Agg')
 
 
 warnings.filterwarnings("ignore", category=PossibleUserWarning)
@@ -185,24 +187,28 @@ def main(cfg: DictConfig):
     name = cfg.general.name
     if name == 'debug':
         print("[WARNING]: Run is called 'debug' -- it will run with fast_dev_run. ")
-
-    use_gpu = cfg.general.gpus > 0 and torch.cuda.is_available()
+    
     trainer = Trainer(gradient_clip_val=cfg.train.clip_grad,
-                      strategy="ddp_find_unused_parameters_true",  # Needed to load old checkpoints
-                      accelerator='gpu' if use_gpu else 'cpu',
-                      devices=cfg.general.gpus if use_gpu else 1,
+                      strategy='auto',
+                      precision='32-true',
+                      accelerator='hpu',
+                      devices=1,
                       max_epochs=cfg.train.n_epochs,
                       check_val_every_n_epoch=cfg.general.check_val_every_n_epochs,
                       fast_dev_run=cfg.general.name == 'debug',
                       enable_progress_bar=False,
                       callbacks=callbacks,
                       log_every_n_steps=50 if name != 'debug' else 1,
-                      logger = [])
+                      logger = [],
+                      profiler='simple',
+                      limit_train_batches=20)
 
     if not cfg.general.test_only:
         trainer.fit(model, datamodule=datamodule, ckpt_path=cfg.general.resume)
         if cfg.general.name not in ['debug', 'test']:
             trainer.test(model, datamodule=datamodule)
+        print('bench_dict.save')
+        bench_dict.save()
     else:
         # Start by evaluating test_only_path
         trainer.test(model, datamodule=datamodule, ckpt_path=cfg.general.test_only)

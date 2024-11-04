@@ -5,7 +5,7 @@ from torch_geometric.utils import to_dense_adj, to_dense_batch
 import torch
 import omegaconf
 import wandb
-
+from tictoc import bench_dict
 
 def create_folders(args):
     try:
@@ -51,13 +51,19 @@ def unnormalize(X, E, y, norm_values, norm_biases, node_mask, collapse=False):
 
 
 def to_dense(x, edge_index, edge_attr, batch):
+    bench_dict['to_dense'].gstep()
     X, node_mask = to_dense_batch(x=x, batch=batch)
+    bench_dict['to_dense'].step('dense to batch')
     # node_mask = node_mask.float()
     edge_index, edge_attr = torch_geometric.utils.remove_self_loops(edge_index, edge_attr)
+    bench_dict['to_dense'].step('remove self')
     # TODO: carefully check if setting node_mask as a bool breaks the continuous case
     max_num_nodes = X.size(1)
     E = to_dense_adj(edge_index=edge_index, batch=batch, edge_attr=edge_attr, max_num_nodes=max_num_nodes)
+    bench_dict['to_dense'].step('adj')
     E = encode_no_edge(E)
+    bench_dict['to_dense'].step('no edge')
+    bench_dict['to_dense'].gstop()
 
     return PlaceHolder(X=X, E=E, y=None), node_mask
 
